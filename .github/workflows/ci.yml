@@ -26,7 +26,7 @@ jobs:
         run: npx -p typescript@5.3.3 tsc -p ./
 
       - name: Run Integration Tests
-        run: node scratch/test_runner.js
+        run: node test/test_runner.js
 
       - name: Package Extension (.vsix)
         run: npx --yes @vscode/vsce package --no-git-tag-version --no-dependencies
