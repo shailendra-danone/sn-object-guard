@@ -35,13 +35,19 @@ export class ConfigManager {
       },
       uat: {
         name: 'uat',
-        hostname: 'danoneuat.service-now.com',
+        hostname: 'danonesandbox.service-now.com',
+        tier: 'uat',
+        authType: 'oauth'
+      },
+      sandbox: {
+        name: 'sandbox',
+        hostname: 'danonesandbox.service-now.com',
         tier: 'uat',
         authType: 'oauth'
       },
       prod: {
         name: 'prod',
-        hostname: 'danoneprod.service-now.com',
+        hostname: 'danone.service-now.com',
         tier: 'prod',
         authType: 'oauth'
       }
@@ -114,11 +120,17 @@ export class ConfigManager {
   public static getHigherInstance(currentInstanceNameOrHost: string, config: GuardConfig): InstanceConfig | null {
     const instances = Object.values(config.instances);
     
+    // Normalize aliases: danoneuat -> danonesandbox, danoneprod -> danone
+    let normalized = currentInstanceNameOrHost.toLowerCase();
+    if (normalized.includes('danoneuat')) normalized = 'danonesandbox.service-now.com';
+    if (normalized.includes('danoneprod')) normalized = 'danone.service-now.com';
+
     // Find current instance by name or hostname
     const current = instances.find(
-      inst => inst.name.toLowerCase() === currentInstanceNameOrHost.toLowerCase() ||
-              inst.hostname.toLowerCase() === currentInstanceNameOrHost.toLowerCase() ||
-              currentInstanceNameOrHost.toLowerCase().includes(inst.name.toLowerCase())
+      inst => inst.name.toLowerCase() === normalized ||
+              inst.hostname.toLowerCase() === normalized ||
+              normalized.includes(inst.name.toLowerCase()) ||
+              normalized.includes(inst.hostname.toLowerCase())
     );
 
     if (!current) {

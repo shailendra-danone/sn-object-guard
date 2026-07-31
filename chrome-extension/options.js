@@ -11,7 +11,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (result.config && result.config.instances) {
       if (result.config.instances.dev) devHostInput.value = result.config.instances.dev.hostname;
       if (result.config.instances.test) testHostInput.value = result.config.instances.test.hostname;
-      if (result.config.instances.uat) uatHostInput.value = result.config.instances.uat.hostname;
+      if (result.config.instances.uat || result.config.instances.sandbox) {
+        uatHostInput.value = (result.config.instances.sandbox || result.config.instances.uat).hostname;
+      }
       if (result.config.instances.prod) prodHostInput.value = result.config.instances.prod.hostname;
     }
   });
@@ -24,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dev: { name: "dev", hostname: devHostInput.value.trim(), tier: "dev" },
         test: { name: "test", hostname: testHostInput.value.trim(), tier: "test" },
         uat: { name: "uat", hostname: uatHostInput.value.trim(), tier: "uat" },
+        sandbox: { name: "sandbox", hostname: uatHostInput.value.trim(), tier: "uat" },
         prod: { name: "prod", hostname: prodHostInput.value.trim(), tier: "prod" }
       }
     };

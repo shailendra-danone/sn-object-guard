@@ -16,13 +16,19 @@
     },
     "uat": {
       "name": "uat",
-      "hostname": "danoneuat.service-now.com",
+      "hostname": "danonesandbox.service-now.com",
+      "tier": "uat",
+      "authType": "oauth"
+    },
+    "sandbox": {
+      "name": "sandbox",
+      "hostname": "danonesandbox.service-now.com",
       "tier": "uat",
       "authType": "oauth"
     },
     "prod": {
       "name": "prod",
-      "hostname": "danoneprod.service-now.com",
+      "hostname": "danone.service-now.com",
       "tier": "prod",
       "authType": "oauth"
     }

@@ -73,6 +73,12 @@ export class ServiceNowClient {
 
       const response = await fetch(url, { method: 'GET', headers });
 
+      if (response.status === 401 || response.status === 403) {
+        const err: any = new Error(`🔑 Authentication Failed (HTTP ${response.status}) on ${instance.name} (${hostname}). Please set valid token or credentials via 'SN Object Guard: Configure Instance Credentials'.`);
+        err.status = response.status;
+        throw err;
+      }
+
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
         const err: any = new Error(`ServiceNow API HTTP ${response.status} (${response.statusText}): ${errorText}`);

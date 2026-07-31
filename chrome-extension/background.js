@@ -7,8 +7,9 @@ const DEFAULT_CONFIG = {
   instances: {
     dev: { name: "dev", hostname: "danonedev.service-now.com", tier: "dev" },
     test: { name: "test", hostname: "danonetest.service-now.com", tier: "test" },
-    uat: { name: "uat", hostname: "danoneuat.service-now.com", tier: "uat" },
-    prod: { name: "prod", hostname: "danoneprod.service-now.com", tier: "prod" }
+    uat: { name: "uat", hostname: "danonesandbox.service-now.com", tier: "uat" },
+    sandbox: { name: "sandbox", hostname: "danonesandbox.service-now.com", tier: "uat" },
+    prod: { name: "prod", hostname: "danone.service-now.com", tier: "prod" }
   }
 };
 
@@ -24,9 +25,14 @@ chrome.runtime.onInstalled.addListener(() => {
 // Helper to get higher instance
 function getHigherInstance(currentHost, config) {
   const instances = Object.values(config.instances);
+  
+  let normalized = currentHost.toLowerCase();
+  if (normalized.includes('danoneuat')) normalized = 'danonesandbox.service-now.com';
+  if (normalized.includes('danoneprod')) normalized = 'danone.service-now.com';
+
   const currentInst = instances.find(inst => 
-    inst.hostname.toLowerCase() === currentHost.toLowerCase() ||
-    currentHost.toLowerCase().includes(inst.name.toLowerCase())
+    inst.hostname.toLowerCase() === normalized ||
+    normalized.includes(inst.name.toLowerCase())
   );
 
   if (!currentInst) return null;
@@ -53,6 +59,10 @@ async function fetchHigherRecord(higherHost, table, sysId) {
         'User-Agent': 'SN-Object-Guard-Chrome/1.0'
       }
     });
+
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`🔑 Authentication Failed (HTTP ${response.status}) on ${higherHost}. Please log in to ${higherHost} in Chrome or set access token in Options.`);
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
