@@ -1,0 +1,9 @@
+node_modules/
+out/
+*.vsix
+.DS_Store
+Shared/
+scratch/
+agy.exe
+.env
+.env.local

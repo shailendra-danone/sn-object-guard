@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "SN Object Guard",
+  "version": "1.0.0",
+  "description": "Prevents developers from editing outdated ServiceNow records by detecting higher-instance changes directly in Google Chrome.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.service-now.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.service-now.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SN Object Guard"
+  },
+  "options_page": "options.html"
+}

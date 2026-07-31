@@ -1,0 +1,13 @@
+.vscode/**
+.vscode-test/**
+src/**
+test/**
+.gitignore
+.eslintrc.json
+tsconfig.json
+vitest.config.ts
+*.vsix
+scratch/**
+Shared/**
+.git/**
+node_modules/@types/**

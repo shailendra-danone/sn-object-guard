@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SN Object Guard</title>
+  <style>
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #11111b;
+      color: #cdd6f4;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #313244;
+    }
+    .header h1 {
+      font-size: 16px;
+      margin: 0;
+      color: #89b4fa;
+    }
+    .status-card {
+      background: #181825;
+      border-radius: 8px;
+      padding: 14px;
+      border: 1px solid #313244;
+      margin-bottom: 16px;
+    }
+    .status-card.outdated { border-color: #f38ba8; }
+    .status-card.synced { border-color: #a6e3a1; }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .badge.outdated { background: #f38ba8; color: #11111b; }
+    .badge.synced { background: #a6e3a1; color: #11111b; }
+    .meta-line {
+      font-size: 12px;
+      margin: 4px 0;
+      opacity: 0.9;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      background: #89b4fa;
+      color: #11111b;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span style="font-size: 20px;">🛡️</span>
+    <h1>SN Object Guard</h1>
+  </div>
+
+  <div id="status-container">
+    <div class="status-card">
+      <div class="meta-line">Checking current active tab...</div>
+    </div>
+  </div>
+
+  <button id="recheck-btn">🔄 Re-check Current Tab</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

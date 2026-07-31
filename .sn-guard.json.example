@@ -1,0 +1,65 @@
+{
+  "$schema": "./.sn-guard.schema.json",
+  "enabled": true,
+  "instances": {
+    "dev": {
+      "name": "dev",
+      "hostname": "danonedev.service-now.com",
+      "tier": "dev",
+      "authType": "oauth"
+    },
+    "test": {
+      "name": "test",
+      "hostname": "danonetest.service-now.com",
+      "tier": "test",
+      "authType": "oauth"
+    },
+    "uat": {
+      "name": "uat",
+      "hostname": "danoneuat.service-now.com",
+      "tier": "uat",
+      "authType": "oauth"
+    },
+    "prod": {
+      "name": "prod",
+      "hostname": "danoneprod.service-now.com",
+      "tier": "prod",
+      "authType": "oauth"
+    }
+  },
+  "pipeline": {
+    "chain": ["dev", "test", "uat", "prod"],
+    "defaultTier": "dev",
+    "autoDetectHigherInstance": true
+  },
+  "tables": {
+    "sys_script_include": {
+      "table": "sys_script_include",
+      "scriptField": "script",
+      "nameField": "name",
+      "monitored": true
+    },
+    "sys_ui_script": {
+      "table": "sys_ui_script",
+      "scriptField": "script",
+      "nameField": "name",
+      "monitored": true
+    },
+    "sp_widget": {
+      "table": "sp_widget",
+      "scriptField": "script",
+      "nameField": "name",
+      "monitored": true
+    }
+  },
+  "comparisonStrategy": "hybrid",
+  "strictness": "high",
+  "ignoreWhitespace": true,
+  "cacheTTLSeconds": 300,
+  "logLevel": "info",
+  "email": {
+    "method": "mailto",
+    "defaultSubject": "[SN Object Guard Alert] Conflict detected for {{recordName}}",
+    "bodyTemplate": "Hello {{modifier}},\n\nA potential conflict was detected for ServiceNow record '{{recordName}}' (Table: {{table}}, Sys ID: {{sysId}}).\n\nLower Instance: {{lowerInstance}}\nHigher Instance: {{higherInstance}}\nLast Modified On Higher Instance: {{sysUpdatedOn}}\nLast Modified By: {{modifier}}\n\nPlease review before overwriting higher environment code."
+  }
+}

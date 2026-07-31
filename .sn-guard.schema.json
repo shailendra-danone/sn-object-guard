@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SN Object Guard Configuration",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable or disable SN Object Guard automated checks."
+    },
+    "instances": {
+      "type": "object",
+      "description": "Map of ServiceNow instances and environment metadata.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "hostname", "tier"],
+        "properties": {
+          "name": { "type": "string" },
+          "hostname": { "type": "string" },
+          "tier": { "type": "string", "enum": ["dev", "test", "uat", "prod"] },
+          "authType": { "type": "string", "enum": ["oauth", "pat", "basic"] }
+        }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["dev", "test", "uat", "prod"]
+        },
+        "defaultTier": { "type": "string", "default": "dev" },
+        "autoDetectHigherInstance": { "type": "boolean", "default": true }
+      }
+    },
+    "comparisonStrategy": {
+      "type": "string",
+      "enum": ["sys_updated_on", "sys_mod_count", "checksum", "hybrid"],
+      "default": "hybrid"
+    },
+    "strictness": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "default": "high"
+    },
+    "ignoreWhitespace": {
+      "type": "boolean",
+      "default": true
+    },
+    "cacheTTLSeconds": {
+      "type": "number",
+      "default": 300
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"],
+      "default": "info"
+    }
+  }
+}

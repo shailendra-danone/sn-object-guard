@@ -1,0 +1,146 @@
+{
+  "name": "sn-object-guard",
+  "displayName": "SN Object Guard",
+  "description": "Enterprise VS Code Extension & Desktop Companion preventing developers from editing outdated ServiceNow objects by detecting higher-instance changes.",
+  "version": "1.0.0",
+  "publisher": "danone-esm",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danone/sn-object-guard.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters",
+    "Other",
+    "Programming Languages",
+    "Visualization"
+  ],
+  "keywords": [
+    "servicenow",
+    "diff",
+    "guard",
+    "sync",
+    "update-set",
+    "development"
+  ],
+  "main": "./out/extension.js",
+  "bin": {
+    "sn-object-guard": "./out/companion/cli.js"
+  },
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:xml",
+    "onLanguage:json",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "snObjectGuard.checkCurrentFile",
+        "title": "SN Object Guard: Check Current File against Higher Instance"
+      },
+      {
+        "command": "snObjectGuard.showDiff",
+        "title": "SN Object Guard: Show Side-by-Side Diff with Higher Instance"
+      },
+      {
+        "command": "snObjectGuard.configureCredentials",
+        "title": "SN Object Guard: Configure Instance Credentials"
+      },
+      {
+        "command": "snObjectGuard.clearCache",
+        "title": "SN Object Guard: Clear Metadata Cache"
+      },
+      {
+        "command": "snObjectGuard.emailLastModifier",
+        "title": "SN Object Guard: Email Last Modifier"
+      },
+      {
+        "command": "snObjectGuard.openHigherInstance",
+        "title": "SN Object Guard: Open Higher Instance Record in Browser"
+      },
+      {
+        "command": "snObjectGuard.overrideWarning",
+        "title": "SN Object Guard: Override Outdated Warning for Session"
+      },
+      {
+        "command": "snObjectGuard.startDesktopCompanion",
+        "title": "SN Object Guard: Run Desktop Companion CLI Check"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "SN Object Guard Configuration",
+      "properties": {
+        "snObjectGuard.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable SN Object Guard automated checks."
+        },
+        "snObjectGuard.configFile": {
+          "type": "string",
+          "default": ".sn-guard.json",
+          "description": "Path to workspace configuration file relative to workspace root."
+        },
+        "snObjectGuard.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check higher instance version before saving local file."
+        },
+        "snObjectGuard.checkOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check higher instance version when opening a file."
+        },
+        "snObjectGuard.comparisonStrategy": {
+          "type": "string",
+          "enum": [
+            "sys_updated_on",
+            "sys_mod_count",
+            "checksum",
+            "hybrid"
+          ],
+          "default": "hybrid",
+          "description": "Strategy used to compare local/current record with higher instance version."
+        },
+        "snObjectGuard.cacheTTLSeconds": {
+          "type": "number",
+          "default": 300,
+          "description": "Time-to-live in seconds for cached higher instance metadata."
+        },
+        "snObjectGuard.logLevel": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "default": "info",
+          "description": "Logging level for OutputChannel and desktop companion logs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npx -p typescript@5.3.3 tsc -p ./",
+    "compile": "npx -p typescript@5.3.3 tsc -p ./",
+    "watch": "npx -p typescript@5.3.3 tsc -w -p ./",
+    "build": "npx -p typescript@5.3.3 tsc -p ./",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.1"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.9"
+  }
+}
