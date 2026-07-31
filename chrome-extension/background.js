@@ -1,4 +1,4 @@
-// SN Object Guard Chrome Extension - Background Service Worker (MV3 Multi-Auth Cookie & Token Engine)
+// SN Object Guard Chrome Extension - Background Service Worker (Tri-Layer Auth & Auto-CSRF Token Engine)
 
 const DEFAULT_CONFIG = {
   pipeline: {
@@ -61,7 +61,6 @@ async function getHigherInstanceCookies(higherHost) {
         return;
       }
 
-      // Try domain query fallback
       chrome.cookies.getAll({ domain: higherHost }, (domainCookies) => {
         if (domainCookies && domainCookies.length > 0) {
           const cookieHeader = domainCookies.map(c => `${c.name}=${c.value}`).join('; ');
@@ -75,6 +74,51 @@ async function getHigherInstanceCookies(higherHost) {
   });
 }
 
+/**
+ * Auto-fetch CSRF token (g_ck) from higher instance if user has logged in via SSO / Browser Session
+ */
+async function fetchCSRFTokenFromSession(higherHost) {
+  try {
+    const response = await fetch(`https://${higherHost}/navpage.do`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { 'Accept': 'text/html' }
+    });
+
+    if (response.ok) {
+      const html = await response.text();
+      const ckMatch = html.match(/var\s+g_ck\s*=\s*['"]([a-fA-F0-9]+)['"]/i) || 
+                      html.match(/name=["']sysparm_ck["']\s+value=["']([a-fA-F0-9]+)["']/i);
+      if (ckMatch && ckMatch[1]) {
+        return ckMatch[1];
+      }
+    }
+  } catch (err) {
+    console.warn('CSRF Auto-Fetch Error:', err);
+  }
+  return null;
+}
+
+/**
+ * Format Authorization header from user input
+ */
+function buildAuthHeader(tokenStr) {
+  if (!tokenStr) return null;
+  const trimmed = tokenStr.trim();
+  if (trimmed.startsWith('Basic ') || trimmed.startsWith('Bearer ')) {
+    return trimmed;
+  }
+  if (trimmed.includes(':')) {
+    try {
+      const b64 = btoa(unescape(encodeURIComponent(trimmed)));
+      return `Basic ${b64}`;
+    } catch {
+      return `Basic ${btoa(trimmed)}`;
+    }
+  }
+  return `Bearer ${trimmed}`;
+}
+
 // Fetch record from higher instance
 async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
   const fields = 'sys_id,sys_updated_on,sys_updated_by,sys_mod_count,name,script,short_description';
@@ -82,35 +126,42 @@ async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
 
   const { cookieHeader, userToken: cookieToken } = await getHigherInstanceCookies(higherHost);
 
+  let effectiveUserToken = userToken || cookieToken;
+
+  // Layer 1: If no userToken, auto-fetch g_ck CSRF token from active browser session
+  if (!effectiveUserToken) {
+    effectiveUserToken = await fetchCSRFTokenFromSession(higherHost);
+  }
+
   const headers = {
     'Accept': 'application/json',
     'User-Agent': 'SN-Object-Guard-Chrome/1.0'
   };
 
-  const effectiveUserToken = userToken || cookieToken;
   if (effectiveUserToken) {
     headers['X-UserToken'] = effectiveUserToken;
   }
 
-  if (token) {
-    if (token.startsWith('Basic ') || token.startsWith('Bearer ')) {
-      headers['Authorization'] = token;
-    } else if (token.includes(':')) {
-      const b64 = btoa(token);
-      headers['Authorization'] = `Basic ${b64}`;
-    } else {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+  const authHeader = buildAuthHeader(token);
+  if (authHeader) {
+    headers['Authorization'] = authHeader;
   }
 
   try {
-    const fetchOptions = {
+    let response = await fetch(url, {
       method: 'GET',
       headers,
       credentials: 'include'
-    };
+    });
 
-    const response = await fetch(url, fetchOptions);
+    // Layer 3: If 401, try fetching fresh CSRF token and retry once
+    if (response.status === 401 || response.status === 403) {
+      const freshToken = await fetchCSRFTokenFromSession(higherHost);
+      if (freshToken) {
+        headers['X-UserToken'] = freshToken;
+        response = await fetch(url, { method: 'GET', headers, credentials: 'include' });
+      }
+    }
 
     if (response.status === 401 || response.status === 403) {
       throw new Error(`AUTH_401:${higherHost}`);
