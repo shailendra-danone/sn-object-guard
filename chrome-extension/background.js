@@ -27,8 +27,10 @@ function getHigherInstance(currentHost, config) {
   const instances = Object.values(config.instances);
   
   let normalized = currentHost.toLowerCase();
-  if (normalized.includes('danoneuat')) normalized = 'danonesandbox.service-now.com';
-  if (normalized.includes('danoneprod')) normalized = 'danone.service-now.com';
+  if (normalized.includes('danonedev')) normalized = 'danonedev.service-now.com';
+  if (normalized.includes('danonetest')) normalized = 'danonetest.service-now.com';
+  if (normalized.includes('danoneuat') || normalized.includes('danonesandbox')) normalized = 'danonesandbox.service-now.com';
+  if (normalized.includes('danoneprod') || normalized === 'danone.service-now.com') normalized = 'danone.service-now.com';
 
   const currentInst = instances.find(inst => 
     inst.hostname.toLowerCase() === normalized ||
@@ -47,7 +49,7 @@ function getHigherInstance(currentHost, config) {
 }
 
 // Fetch record from higher instance
-async function fetchHigherRecord(higherHost, table, sysId, token) {
+async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
   const fields = 'sys_id,sys_updated_on,sys_updated_by,sys_mod_count,name,script,short_description';
   const url = `https://${higherHost}/api/now/table/${table}/${sysId}?sysparm_fields=${fields}`;
 
@@ -55,6 +57,10 @@ async function fetchHigherRecord(higherHost, table, sysId, token) {
     'Accept': 'application/json',
     'User-Agent': 'SN-Object-Guard-Chrome/1.0'
   };
+
+  if (userToken) {
+    headers['X-UserToken'] = userToken;
+  }
 
   if (token) {
     if (token.startsWith('Basic ') || token.startsWith('Bearer ')) {
@@ -68,7 +74,7 @@ async function fetchHigherRecord(higherHost, table, sysId, token) {
     const response = await fetch(url, {
       method: 'GET',
       headers,
-      credentials: 'include' // Include session cookies for higher instance if logged in
+      credentials: 'include' // Send SSO cookies if logged in
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -107,7 +113,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const token = activeTokens[higherInst.name] || activeTokens[higherInst.hostname];
 
         try {
-          const higherRecord = await fetchHigherRecord(higherInst.hostname, request.table, request.sysId, token);
+          const higherRecord = await fetchHigherRecord(
+            higherInst.hostname,
+            request.table,
+            request.sysId,
+            token,
+            request.userToken
+          );
 
           const localTime = request.localUpdatedOn ? new Date(request.localUpdatedOn).getTime() : 0;
           const higherTime = new Date(higherRecord.sys_updated_on).getTime();
@@ -120,13 +132,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             isOutdated: isOutdated || modCountDiff > 0,
             currentHost,
             higherInstance: higherInst,
+            higherHost: higherInst.hostname,
             higherRecord: {
               sys_id: higherRecord.sys_id,
               sys_updated_on: higherRecord.sys_updated_on,
               sys_updated_by: higherRecord.sys_updated_by || 'unknown',
               sys_mod_count: higherRecord.sys_mod_count,
               name: higherRecord.name || higherRecord.short_description || request.sysId,
-              script: higherRecord.script || ''
+              script: higherRecord.script || '',
+              table: request.table
             },
             reason: isOutdated 
               ? `Higher instance (${higherInst.name.toUpperCase()}) was updated on ${higherRecord.sys_updated_on} by ${higherRecord.sys_updated_by}`
@@ -140,7 +154,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               isAuthError: true,
               higherHost: host,
               higherInstance: higherInst,
-              error: `🔑 Authentication required for higher instance (${higherInst.name.toUpperCase()}: ${host}). Please log into ${host} in Chrome or set an Access Token in Extension Options.`
+              error: `🔑 Authentication required for higher instance (${higherInst.name.toUpperCase()}: ${host}). Please log into ${host} in Chrome once or set an Access Token in Extension Options.`
             });
           } else {
             sendResponse({ success: false, error: err.message });
