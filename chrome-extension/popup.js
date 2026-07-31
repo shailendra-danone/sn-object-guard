@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     container.innerHTML = `<div class="status-card"><div class="meta-line">Checking ServiceNow record...</div></div>`;
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]) return;
+      if (!tabs[0] || !tabs[0].url) return;
 
       const tab = tabs[0];
       const url = tab.url;
@@ -39,28 +39,47 @@ document.addEventListener('DOMContentLoaded', () => {
           }
 
           if (res.isAuthError) {
+            const instName = (res.higherInstance?.name || 'TEST').toUpperCase();
+            const host = res.higherHost || 'danonetest.service-now.com';
+
             container.innerHTML = `
               <div class="status-card outdated">
-                <span class="badge outdated">🔑 Auth Required</span>
-                <div class="meta-line">Not logged in to target higher instance:</div>
-                <div class="meta-line"><strong>${res.higherInstance.name.toUpperCase()}</strong> (${res.higherHost})</div>
-                <button id="login-higher-btn" style="margin-top:10px; background:#f38ba8; color:#11111b;">🌐 Open & Log In to ${res.higherInstance.name.toUpperCase()}</button>
-                <div style="font-size:11px; opacity:0.7; margin-top:8px; text-align:center;">Or configure access token in <a href="#" id="open-options-link" style="color:#89b4fa;">Extension Options</a></div>
+                <span class="badge outdated">🔑 ${instName} Login Required</span>
+                <div class="meta-line">Chrome needs authentication for target higher instance:</div>
+                <div class="meta-line"><strong>${instName}</strong> (<code>${host}</code>)</div>
+                
+                <div style="margin-top:12px; font-weight:600; font-size:11px; color:#f38ba8;">METHOD 1: Log in via SSO</div>
+                <button id="login-higher-btn" style="margin-top:4px; background:#f38ba8; color:#11111b;">🌐 Open & Log In to ${instName} in Chrome</button>
+                
+                <div style="margin-top:12px; font-weight:600; font-size:11px; color:#89b4fa;">METHOD 2: Enter Access Token or Credentials</div>
+                <input type="password" id="inline-token-input" placeholder="Bearer Token or username:password">
+                <button id="save-token-btn" style="margin-top:6px; background:#89b4fa; color:#11111b;">💾 Save Token & Retry Check</button>
               </div>
             `;
 
             const loginBtn = document.getElementById('login-higher-btn');
             if (loginBtn) {
               loginBtn.onclick = () => {
-                chrome.tabs.create({ url: `https://${res.higherHost}` });
+                chrome.tabs.create({ url: `https://${host}` });
               };
             }
 
-            const optionsLink = document.getElementById('open-options-link');
-            if (optionsLink) {
-              optionsLink.onclick = (e) => {
-                e.preventDefault();
-                chrome.runtime.openOptionsPage();
+            const saveTokenBtn = document.getElementById('save-token-btn');
+            const tokenInput = document.getElementById('inline-token-input');
+            if (saveTokenBtn && tokenInput) {
+              saveTokenBtn.onclick = () => {
+                const val = tokenInput.value.trim();
+                if (!val) return;
+
+                chrome.storage.local.get(['tokens'], (store) => {
+                  const tokens = store.tokens || {};
+                  const key = res.higherInstance?.name || 'test';
+                  tokens[key] = val;
+                  tokens[host] = val;
+                  chrome.storage.local.set({ tokens }, () => {
+                    checkTab(); // Re-check immediately after saving token!
+                  });
+                });
               };
             }
             return;

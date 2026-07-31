@@ -1,4 +1,4 @@
-// SN Object Guard Chrome Extension - Background Service Worker (MV3 Cross-Domain Cookie Engine)
+// SN Object Guard Chrome Extension - Background Service Worker (MV3 Multi-Auth Cookie & Token Engine)
 
 const DEFAULT_CONFIG = {
   pipeline: {
@@ -95,6 +95,9 @@ async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
   if (token) {
     if (token.startsWith('Basic ') || token.startsWith('Bearer ')) {
       headers['Authorization'] = token;
+    } else if (token.includes(':')) {
+      const b64 = btoa(token);
+      headers['Authorization'] = `Basic ${b64}`;
     } else {
       headers['Authorization'] = `Bearer ${token}`;
     }
