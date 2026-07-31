@@ -1,4 +1,4 @@
-// SN Object Guard Chrome Extension - Background Service Worker
+// SN Object Guard Chrome Extension - Background Service Worker (MV3 Cross-Domain Cookie Engine)
 
 const DEFAULT_CONFIG = {
   pipeline: {
@@ -48,18 +48,48 @@ function getHigherInstance(currentHost, config) {
   return instances.find(inst => inst.tier.toLowerCase() === higherTier.toLowerCase() || inst.name.toLowerCase() === higherTier.toLowerCase()) || null;
 }
 
+/**
+ * Retrieve session cookies for higher host using chrome.cookies API
+ */
+async function getHigherInstanceCookies(higherHost) {
+  return new Promise((resolve) => {
+    chrome.cookies.getAll({ url: `https://${higherHost}` }, (cookies) => {
+      if (cookies && cookies.length > 0) {
+        const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+        const ckCookie = cookies.find(c => c.name === 'sysparm_ck' || c.name === 'g_ck' || c.name === 'user_token');
+        resolve({ cookieHeader, userToken: ckCookie ? ckCookie.value : null });
+        return;
+      }
+
+      // Try domain query fallback
+      chrome.cookies.getAll({ domain: higherHost }, (domainCookies) => {
+        if (domainCookies && domainCookies.length > 0) {
+          const cookieHeader = domainCookies.map(c => `${c.name}=${c.value}`).join('; ');
+          const ckCookie = domainCookies.find(c => c.name === 'sysparm_ck' || c.name === 'g_ck' || c.name === 'user_token');
+          resolve({ cookieHeader, userToken: ckCookie ? ckCookie.value : null });
+        } else {
+          resolve({ cookieHeader: '', userToken: null });
+        }
+      });
+    });
+  });
+}
+
 // Fetch record from higher instance
 async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
   const fields = 'sys_id,sys_updated_on,sys_updated_by,sys_mod_count,name,script,short_description';
   const url = `https://${higherHost}/api/now/table/${table}/${sysId}?sysparm_fields=${fields}`;
+
+  const { cookieHeader, userToken: cookieToken } = await getHigherInstanceCookies(higherHost);
 
   const headers = {
     'Accept': 'application/json',
     'User-Agent': 'SN-Object-Guard-Chrome/1.0'
   };
 
-  if (userToken) {
-    headers['X-UserToken'] = userToken;
+  const effectiveUserToken = userToken || cookieToken;
+  if (effectiveUserToken) {
+    headers['X-UserToken'] = effectiveUserToken;
   }
 
   if (token) {
@@ -71,11 +101,13 @@ async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
   }
 
   try {
-    const response = await fetch(url, {
+    const fetchOptions = {
       method: 'GET',
       headers,
-      credentials: 'include' // Send SSO cookies if logged in
-    });
+      credentials: 'include'
+    };
+
+    const response = await fetch(url, fetchOptions);
 
     if (response.status === 401 || response.status === 403) {
       throw new Error(`AUTH_401:${higherHost}`);

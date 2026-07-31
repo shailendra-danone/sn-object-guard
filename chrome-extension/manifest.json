@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "cookies",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://*.service-now.com/*"
