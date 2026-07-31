@@ -8,12 +8,18 @@
     "storage",
     "scripting",
     "cookies",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "https://*/*",
     "http://*/*"
   ],
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
   "background": {
     "service_worker": "background.js"
   },
@@ -28,7 +34,8 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "SN Object Guard"
+    "default_title": "SN Object Guard",
+    "default_icon": "icon.png"
   },
   "options_page": "options.html"
 }

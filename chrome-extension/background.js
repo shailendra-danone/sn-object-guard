@@ -1,4 +1,4 @@
-// SN Object Guard Chrome Extension - Background Service Worker (Ground-Up Auth Engine)
+// SN Object Guard Chrome Extension - Background Service Worker (DeclarativeNetRequest CORS Bypass & Multi-Auth Engine)
 
 const DEFAULT_CONFIG = {
   pipeline: {
@@ -13,14 +13,51 @@ const DEFAULT_CONFIG = {
   }
 };
 
-// Initialize Storage
+/**
+ * Configure declarativeNetRequest rules to bypass CORS preflight and allow cross-origin REST Table API calls
+ */
+async function setupDeclarativeNetRules() {
+  try {
+    const rules = [
+      {
+        id: 1,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          responseHeaders: [
+            { header: "Access-Control-Allow-Origin", operation: "set", value: "*" },
+            { header: "Access-Control-Allow-Credentials", operation: "set", value: "true" },
+            { header: "Access-Control-Allow-Headers", operation: "set", value: "Authorization, X-UserToken, Content-Type, Accept, User-Agent" },
+            { header: "Access-Control-Allow-Methods", operation: "set", value: "GET, OPTIONS, POST" }
+          ]
+        },
+        condition: {
+          urlFilter: "service-now.com/api/now/table/",
+          resourceTypes: ["xmlhttprequest"]
+        }
+      }
+    ];
+
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [1],
+      addRules: rules
+    });
+  } catch (err) {
+    console.warn('declarativeNetRequest setup error:', err);
+  }
+}
+
+// Initialize Storage & Rules
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['config'], (result) => {
     if (!result.config) {
       chrome.storage.local.set({ config: DEFAULT_CONFIG });
     }
   });
+  setupDeclarativeNetRules();
 });
+
+setupDeclarativeNetRules();
 
 // Helper to get higher instance
 function getHigherInstance(currentHost, config) {
@@ -73,7 +110,6 @@ function parseAuthHeader(credStr) {
   if (trimmed.includes(':')) {
     return `Basic ${safeBtoa(trimmed)}`;
   }
-  // Default to Bearer or Basic if plain password
   return `Bearer ${trimmed}`;
 }
 
@@ -98,7 +134,7 @@ async function fetchCSRFToken(higherHost) {
 }
 
 /**
- * Core ServiceNow Table API Fetcher with Dual-Auth Strategy
+ * Core ServiceNow Table API Fetcher with Dual-Auth Strategy & CORS Bypass
  */
 async function fetchHigherRecord(higherHost, table, sysId, tokenOrCreds, userToken) {
   const fields = 'sys_id,sys_updated_on,sys_updated_by,sys_mod_count,name,script,short_description';
@@ -106,7 +142,7 @@ async function fetchHigherRecord(higherHost, table, sysId, tokenOrCreds, userTok
 
   const authHeader = parseAuthHeader(tokenOrCreds);
 
-  // STRATEGY 1: If explicit credentials/token supplied, use Clean Basic/Bearer Auth with credentials: 'omit'
+  // STRATEGY 1: Explicit Credentials/Token with credentials: 'omit' (Direct REST API Auth)
   if (authHeader) {
     const headers = {
       'Accept': 'application/json',
@@ -118,15 +154,12 @@ async function fetchHigherRecord(higherHost, table, sysId, tokenOrCreds, userTok
       const response = await fetch(url, {
         method: 'GET',
         headers,
-        credentials: 'omit' // Prevent conflicting session cookies from polluting Basic Auth
+        credentials: 'omit'
       });
 
       if (response.ok) {
         const data = await response.json();
         return data.result || data;
-      }
-      if (response.status === 401 || response.status === 403) {
-        console.warn(`Basic Auth failed (HTTP ${response.status}) on ${higherHost}. Trying session auth fallback...`);
       }
     } catch (e) {
       console.warn('Basic Auth Fetch Exception:', e);
@@ -187,7 +220,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return;
         }
 
-        // Get stored credentials/token for higher instance
         const tokenOrCreds = activeTokens[higherInst.name] || 
                              activeTokens[higherInst.hostname] || 
                              activeTokens[higherInst.tier];
