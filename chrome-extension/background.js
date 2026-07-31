@@ -1,4 +1,4 @@
-// SN Object Guard Chrome Extension - Background Service Worker (Tri-Layer Auth & Auto-CSRF Token Engine)
+// SN Object Guard Chrome Extension - Background Service Worker (Ground-Up Auth Engine)
 
 const DEFAULT_CONFIG = {
   pipeline: {
@@ -49,130 +49,121 @@ function getHigherInstance(currentHost, config) {
 }
 
 /**
- * Retrieve session cookies for higher host using chrome.cookies API
+ * Unicode-safe Base64 encoder for Basic Auth
  */
-async function getHigherInstanceCookies(higherHost) {
-  return new Promise((resolve) => {
-    chrome.cookies.getAll({ url: `https://${higherHost}` }, (cookies) => {
-      if (cookies && cookies.length > 0) {
-        const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-        const ckCookie = cookies.find(c => c.name === 'sysparm_ck' || c.name === 'g_ck' || c.name === 'user_token');
-        resolve({ cookieHeader, userToken: ckCookie ? ckCookie.value : null });
-        return;
-      }
-
-      chrome.cookies.getAll({ domain: higherHost }, (domainCookies) => {
-        if (domainCookies && domainCookies.length > 0) {
-          const cookieHeader = domainCookies.map(c => `${c.name}=${c.value}`).join('; ');
-          const ckCookie = domainCookies.find(c => c.name === 'sysparm_ck' || c.name === 'g_ck' || c.name === 'user_token');
-          resolve({ cookieHeader, userToken: ckCookie ? ckCookie.value : null });
-        } else {
-          resolve({ cookieHeader: '', userToken: null });
-        }
-      });
-    });
-  });
-}
-
-/**
- * Auto-fetch CSRF token (g_ck) from higher instance if user has logged in via SSO / Browser Session
- */
-async function fetchCSRFTokenFromSession(higherHost) {
+function safeBtoa(str) {
   try {
-    const response = await fetch(`https://${higherHost}/navpage.do`, {
-      method: 'GET',
-      credentials: 'include',
-      headers: { 'Accept': 'text/html' }
-    });
-
-    if (response.ok) {
-      const html = await response.text();
-      const ckMatch = html.match(/var\s+g_ck\s*=\s*['"]([a-fA-F0-9]+)['"]/i) || 
-                      html.match(/name=["']sysparm_ck["']\s+value=["']([a-fA-F0-9]+)["']/i);
-      if (ckMatch && ckMatch[1]) {
-        return ckMatch[1];
-      }
-    }
-  } catch (err) {
-    console.warn('CSRF Auto-Fetch Error:', err);
+    return btoa(unescape(encodeURIComponent(str)));
+  } catch {
+    return btoa(str);
   }
-  return null;
 }
 
 /**
- * Format Authorization header from user input
+ * Parse and format Authorization header cleanly
  */
-function buildAuthHeader(tokenStr) {
-  if (!tokenStr) return null;
-  const trimmed = tokenStr.trim();
+function parseAuthHeader(credStr) {
+  if (!credStr) return null;
+  const trimmed = credStr.trim();
+  if (!trimmed) return null;
+
   if (trimmed.startsWith('Basic ') || trimmed.startsWith('Bearer ')) {
     return trimmed;
   }
   if (trimmed.includes(':')) {
-    try {
-      const b64 = btoa(unescape(encodeURIComponent(trimmed)));
-      return `Basic ${b64}`;
-    } catch {
-      return `Basic ${btoa(trimmed)}`;
-    }
+    return `Basic ${safeBtoa(trimmed)}`;
   }
+  // Default to Bearer or Basic if plain password
   return `Bearer ${trimmed}`;
 }
 
-// Fetch record from higher instance
-async function fetchHigherRecord(higherHost, table, sysId, token, userToken) {
+/**
+ * Fetch CSRF Token from active browser session on higher host
+ */
+async function fetchCSRFToken(higherHost) {
+  try {
+    const res = await fetch(`https://${higherHost}/navpage.do`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { 'Accept': 'text/html' }
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const match = html.match(/var\s+g_ck\s*=\s*['"]([a-fA-F0-9]+)['"]/i) ||
+                    html.match(/name=["']sysparm_ck["']\s+value=["']([a-fA-F0-9]+)["']/i);
+      if (match && match[1]) return match[1];
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Core ServiceNow Table API Fetcher with Dual-Auth Strategy
+ */
+async function fetchHigherRecord(higherHost, table, sysId, tokenOrCreds, userToken) {
   const fields = 'sys_id,sys_updated_on,sys_updated_by,sys_mod_count,name,script,short_description';
   const url = `https://${higherHost}/api/now/table/${table}/${sysId}?sysparm_fields=${fields}`;
 
-  const { cookieHeader, userToken: cookieToken } = await getHigherInstanceCookies(higherHost);
+  const authHeader = parseAuthHeader(tokenOrCreds);
 
-  let effectiveUserToken = userToken || cookieToken;
+  // STRATEGY 1: If explicit credentials/token supplied, use Clean Basic/Bearer Auth with credentials: 'omit'
+  if (authHeader) {
+    const headers = {
+      'Accept': 'application/json',
+      'Authorization': authHeader,
+      'User-Agent': 'SN-Object-Guard-Chrome/1.0'
+    };
 
-  // Layer 1: If no userToken, auto-fetch g_ck CSRF token from active browser session
-  if (!effectiveUserToken) {
-    effectiveUserToken = await fetchCSRFTokenFromSession(higherHost);
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        credentials: 'omit' // Prevent conflicting session cookies from polluting Basic Auth
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.result || data;
+      }
+      if (response.status === 401 || response.status === 403) {
+        console.warn(`Basic Auth failed (HTTP ${response.status}) on ${higherHost}. Trying session auth fallback...`);
+      }
+    } catch (e) {
+      console.warn('Basic Auth Fetch Exception:', e);
+    }
   }
 
-  const headers = {
+  // STRATEGY 2: Browser Session / SSO Auth with X-UserToken & credentials: 'include'
+  let csrfToken = userToken;
+  if (!csrfToken) {
+    csrfToken = await fetchCSRFToken(higherHost);
+  }
+
+  const sessionHeaders = {
     'Accept': 'application/json',
     'User-Agent': 'SN-Object-Guard-Chrome/1.0'
   };
-
-  if (effectiveUserToken) {
-    headers['X-UserToken'] = effectiveUserToken;
-  }
-
-  const authHeader = buildAuthHeader(token);
-  if (authHeader) {
-    headers['Authorization'] = authHeader;
+  if (csrfToken) {
+    sessionHeaders['X-UserToken'] = csrfToken;
   }
 
   try {
-    let response = await fetch(url, {
+    const response = await fetch(url, {
       method: 'GET',
-      headers,
+      headers: sessionHeaders,
       credentials: 'include'
     });
 
-    // Layer 3: If 401, try fetching fresh CSRF token and retry once
-    if (response.status === 401 || response.status === 403) {
-      const freshToken = await fetchCSRFTokenFromSession(higherHost);
-      if (freshToken) {
-        headers['X-UserToken'] = freshToken;
-        response = await fetch(url, { method: 'GET', headers, credentials: 'include' });
-      }
+    if (response.ok) {
+      const data = await response.json();
+      return data.result || data;
     }
 
     if (response.status === 401 || response.status === 403) {
       throw new Error(`AUTH_401:${higherHost}`);
     }
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.result || data;
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   } catch (err) {
     console.error('Fetch Higher Record Error:', err);
     throw err;
@@ -192,18 +183,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const higherInst = getHigherInstance(currentHost, activeConfig);
 
         if (!higherInst) {
-          sendResponse({ success: false, reason: `No higher instance mapped for ${currentHost}` });
+          sendResponse({ success: false, reason: `No higher instance mapped for host ${currentHost}` });
           return;
         }
 
-        const token = activeTokens[higherInst.name] || activeTokens[higherInst.hostname];
+        // Get stored credentials/token for higher instance
+        const tokenOrCreds = activeTokens[higherInst.name] || 
+                             activeTokens[higherInst.hostname] || 
+                             activeTokens[higherInst.tier];
 
         try {
           const higherRecord = await fetchHigherRecord(
             higherInst.hostname,
             request.table,
             request.sysId,
-            token,
+            tokenOrCreds,
             request.userToken
           );
 
@@ -240,7 +234,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               isAuthError: true,
               higherHost: host,
               higherInstance: higherInst,
-              error: `🔑 Authentication required for higher instance (${higherInst.name.toUpperCase()}: ${host}). Please log into ${host} in Chrome once or set an Access Token in Extension Options.`
+              error: `🔑 Authentication required for ${higherInst.name.toUpperCase()} (${host}). Enter username:password or Token below.`
             });
           } else {
             sendResponse({ success: false, error: err.message });

@@ -8,19 +8,16 @@ document.addEventListener('DOMContentLoaded', () => {
     try { url = decodeURIComponent(rawUrl); } catch {}
     try { url = decodeURIComponent(url); } catch {}
 
-    // Pattern 1: sys_script_include.do?sys_id=32hex
     const match1 = url.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/i);
     if (match1 && match1[1] !== 'nav_to' && match1[1] !== 'navpage') {
       return { table: match1[1], sysId: match1[2] };
     }
 
-    // Pattern 2: Next Experience / Polaris target parameter
     const match2 = url.match(/([a-zA-Z0-9_]+)\.do.*sys_id[=%3D]([a-fA-F0-9]{32})/i);
     if (match2 && match2[1] !== 'nav_to' && match2[1] !== 'navpage') {
       return { table: match2[1], sysId: match2[2] };
     }
 
-    // Pattern 3: Any 32-hex string alongside table
     const sysIdMatch = url.match(/\b([a-fA-F0-9]{32})\b/);
     const tableMatch = url.match(/(?:table|sys_target|target)[=%3D\/]([a-zA-Z0-9_]+)/i);
     if (sysIdMatch && tableMatch && tableMatch[1] !== 'nav_to' && tableMatch[1] !== 'navpage') {
@@ -42,15 +39,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const activeTab = tabs[0];
       const hostname = new URL(activeTab.url).hostname;
 
-      // Method 1: Ask content script in active tab (DOM & Main World access)
       chrome.tabs.sendMessage(activeTab.id, { action: 'GET_CURRENT_RECORD' }, (response) => {
-        let record = response?.record;
+        let record = response?.record || parseUrlForRecord(activeTab.url);
         let userToken = response?.userToken;
-
-        // Method 2: Fallback to parsing active tab URL
-        if (!record) {
-          record = parseUrlForRecord(activeTab.url);
-        }
 
         if (!record) {
           container.innerHTML = `
@@ -62,7 +53,6 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        // Send check request to background service worker
         chrome.runtime.sendMessage(
           {
             action: 'CHECK_RECORD',
@@ -83,40 +73,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
               container.innerHTML = `
                 <div class="status-card outdated">
-                  <span class="badge outdated">🔑 ${instName} Login Required</span>
-                  <div class="meta-line">Chrome needs authentication for target higher instance:</div>
-                  <div class="meta-line"><strong>${instName}</strong> (<code>${host}</code>)</div>
+                  <span class="badge outdated">🔑 ${instName} AUTH REQUIRED</span>
+                  <div class="meta-line" style="margin-bottom:8px;">Target: <strong>${instName}</strong> (<code>${host}</code>)</div>
                   
-                  <div style="margin-top:12px; font-weight:600; font-size:11px; color:#f38ba8;">METHOD 1: Log in via SSO</div>
-                  <button id="login-higher-btn" style="margin-top:4px; background:#f38ba8; color:#11111b;">🌐 Open & Log In to ${instName} in Chrome</button>
-                  
-                  <div style="margin-top:12px; font-weight:600; font-size:11px; color:#89b4fa;">METHOD 2: Enter Access Token or Credentials</div>
-                  <input type="password" id="inline-token-input" placeholder="Bearer Token or username:password">
-                  <button id="save-token-btn" style="margin-top:6px; background:#89b4fa; color:#11111b;">💾 Save Token & Retry Check</button>
+                  <div style="background:#11111b; padding:10px; border-radius:6px; border:1px solid #45475a; margin-top:6px;">
+                    <div style="font-weight:600; font-size:11px; color:#a6e3a1; margin-bottom:4px;">Option A: Enter Admin / User Credentials</div>
+                    <input type="text" id="popup-user-input" placeholder="Username (e.g. admin)" style="margin-bottom:6px;">
+                    <input type="password" id="popup-pass-input" placeholder="Password or Token">
+                    <button id="save-creds-btn" style="margin-top:8px; background:#a6e3a1; color:#11111b; font-weight:700;">💾 Save Credentials & Check Now</button>
+                  </div>
+
+                  <div style="margin-top:12px; font-weight:600; font-size:11px; color:#89b4fa;">Option B: Browser SSO Session</div>
+                  <button id="login-higher-btn" style="margin-top:4px; background:#313244; color:#cdd6f4;">🌐 Open ${instName} in Tab to Log In</button>
                 </div>
               `;
 
               const loginBtn = document.getElementById('login-higher-btn');
               if (loginBtn) {
-                loginBtn.onclick = () => {
-                  chrome.tabs.create({ url: `https://${host}` });
-                };
+                loginBtn.onclick = () => chrome.tabs.create({ url: `https://${host}` });
               }
 
-              const saveTokenBtn = document.getElementById('save-token-btn');
-              const tokenInput = document.getElementById('inline-token-input');
-              if (saveTokenBtn && tokenInput) {
-                saveTokenBtn.onclick = () => {
-                  const val = tokenInput.value.trim();
-                  if (!val) return;
+              const saveCredsBtn = document.getElementById('save-creds-btn');
+              const userInput = document.getElementById('popup-user-input');
+              const passInput = document.getElementById('popup-pass-input');
+
+              if (saveCredsBtn && userInput && passInput) {
+                saveCredsBtn.onclick = () => {
+                  const u = userInput.value.trim();
+                  const p = passInput.value.trim();
+
+                  if (!p) return;
+                  const combined = u ? `${u}:${p}` : p;
 
                   chrome.storage.local.get(['tokens'], (store) => {
                     const tokens = store.tokens || {};
                     const key = res.higherInstance?.name || 'test';
-                    tokens[key] = val;
-                    tokens[host] = val;
+                    tokens[key] = combined;
+                    tokens[host] = combined;
+                    tokens[res.higherInstance?.tier || 'test'] = combined;
+
                     chrome.storage.local.set({ tokens }, () => {
-                      checkTab();
+                      checkTab(); // Instant re-check with new credentials!
                     });
                   });
                 };
@@ -134,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="status-card outdated">
                   <span class="badge outdated">Higher Instance Outdated</span>
                   <div class="meta-line"><strong>Record:</strong> ${res.higherRecord.name}</div>
-                  <div class="meta-line"><strong>Higher Instance:</strong> ${res.higherInstance.name.toUpperCase()}</div>
+                  <div class="meta-line"><strong>Higher Instance:</strong> ${res.higherInstance.name.toUpperCase()} (${res.higherHost})</div>
                   <div class="meta-line"><strong>Last Modifier:</strong> ${res.higherRecord.sys_updated_by}</div>
                   <div class="meta-line"><strong>Updated On:</strong> ${res.higherRecord.sys_updated_on}</div>
                 </div>
