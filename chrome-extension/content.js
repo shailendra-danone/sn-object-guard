@@ -1,7 +1,89 @@
-// SN Object Guard Chrome Extension - Content Script (iFrame & SSO Support)
+// SN Object Guard Chrome Extension - Content Script (Universal ServiceNow Record Detector)
 
 (function () {
   let floatingBadge = null;
+
+  /**
+   * Universal ServiceNow Record Detection Engine
+   */
+  function detectServiceNowRecord() {
+    // 1. Try DOM g_form
+    try {
+      if (window.g_form && typeof window.g_form.getTableName === 'function') {
+        const table = window.g_form.getTableName();
+        const sysId = window.g_form.getUniqueValue();
+        if (table && sysId && sysId !== '-1' && /^[a-fA-F0-9]{32}$/.test(sysId)) {
+          return { table, sysId };
+        }
+      }
+    } catch {}
+
+    // 2. Try DOM hidden input fields (#sys_unique_value, sys_target, input[name="sys_id"])
+    try {
+      const uniqueValInput = document.getElementById('sys_unique_value') || document.querySelector('input[name="sys_id"]');
+      const targetInput = document.getElementById('sys_target') || document.querySelector('input[name="sys_target"]');
+      if (uniqueValInput && uniqueValInput.value && /^[a-fA-F0-9]{32}$/.test(uniqueValInput.value)) {
+        const sysId = uniqueValInput.value;
+        const table = targetInput ? targetInput.value : (window.location.pathname.match(/\/([a-zA-Z0-9_]+)\.do/) || [])[1];
+        if (table) {
+          return { table, sysId };
+        }
+      }
+    } catch {}
+
+    // 3. Try Current Frame & Parent URL (decoding encoded URI / Next Experience params)
+    const urlsToTest = [
+      window.location.href,
+      decodeURIComponent(window.location.href),
+      window.location.search,
+      decodeURIComponent(window.location.search)
+    ];
+
+    try {
+      if (window.top && window.top.location) {
+        urlsToTest.push(window.top.location.href);
+        urlsToTest.push(decodeURIComponent(window.top.location.href));
+      }
+    } catch {}
+
+    for (const rawUrl of urlsToTest) {
+      if (!rawUrl) continue;
+      const url = decodeURIComponent(rawUrl);
+
+      // Pattern A: sys_script_include.do?sys_id=12345...
+      const matchA = url.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
+      if (matchA && matchA[1] !== 'nav_to' && matchA[1] !== 'navpage') {
+        return { table: matchA[1], sysId: matchA[2] };
+      }
+
+      // Pattern B: Next Experience / Polaris / target parameter (sys_script_include.do?sys_id=...)
+      const matchB = url.match(/([a-zA-Z0-9_]+)\.do.*sys_id[=%3D]([a-fA-F0-9]{32})/);
+      if (matchB && matchB[1] !== 'nav_to' && matchB[1] !== 'navpage') {
+        return { table: matchB[1], sysId: matchB[2] };
+      }
+
+      // Pattern C: sys_id=32hex&table=tableName
+      const sysIdMatch = url.match(/sys_id[=%3D]([a-fA-F0-9]{32})/);
+      const tableMatch = url.match(/(?:table|sys_target)[=%3D]([a-zA-Z0-9_]+)/);
+      if (sysIdMatch && tableMatch) {
+        return { table: tableMatch[1], sysId: sysIdMatch[1] };
+      }
+    }
+
+    // 4. If top frame, check gsft_main iframe
+    try {
+      const iframe = document.getElementById('gsft_main');
+      if (iframe && iframe.contentWindow) {
+        const iframeHref = decodeURIComponent(iframe.contentWindow.location.href);
+        const iframeMatch = iframeHref.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
+        if (iframeMatch) {
+          return { table: iframeMatch[1], sysId: iframeMatch[2] };
+        }
+      }
+    } catch {}
+
+    return null;
+  }
 
   /**
    * Extract ServiceNow CSRF user token (g_ck) for SSO REST requests
@@ -13,59 +95,8 @@
 
       const ckInput = document.querySelector('input[name="sysparm_ck"]');
       if (ckInput && ckInput.value) return ckInput.value;
-    } catch {
-      // cross-origin fallback
-    }
+    } catch {}
     return '';
-  }
-
-  /**
-   * Robust ServiceNow record detection across top frame, nav_to.do, Polaris, and gsft_main iframe
-   */
-  function detectServiceNowRecord() {
-    // 1. Try window.g_form if available in current frame
-    try {
-      if (window.g_form && typeof window.g_form.getTableName === 'function') {
-        const table = window.g_form.getTableName();
-        const sysId = window.g_form.getUniqueValue();
-        if (table && sysId && sysId !== '-1' && sysId.length === 32) {
-          return { table, sysId };
-        }
-      }
-    } catch {}
-
-    // 2. Check current frame URL
-    const href = window.location.href;
-    const directMatch = href.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
-    if (directMatch && directMatch[1] !== 'nav_to' && directMatch[1] !== 'navpage') {
-      return { table: directMatch[1], sysId: directMatch[2] };
-    }
-
-    // 3. Check search parameters (nav_to.do?uri=... or target=...)
-    try {
-      const searchParams = new URLSearchParams(window.location.search);
-      const uriParam = searchParams.get('uri') || searchParams.get('target');
-      if (uriParam) {
-        const uriMatch = decodeURIComponent(uriParam).match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
-        if (uriMatch) {
-          return { table: uriMatch[1], sysId: uriMatch[2] };
-        }
-      }
-    } catch {}
-
-    // 4. If top frame, inspect gsft_main iframe src
-    try {
-      const iframe = document.getElementById('gsft_main');
-      if (iframe && iframe.contentWindow) {
-        const iframeHref = iframe.contentWindow.location.href;
-        const iframeMatch = iframeHref.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
-        if (iframeMatch) {
-          return { table: iframeMatch[1], sysId: iframeMatch[2] };
-        }
-      }
-    } catch {}
-
-    return null;
   }
 
   /**
@@ -170,6 +201,15 @@
       .replace(/>/g, "&gt;");
   }
 
+  // Listen for direct queries from Extension Popup
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'GET_CURRENT_RECORD') {
+      const record = detectServiceNowRecord();
+      const userToken = getUserToken();
+      sendResponse({ record, userToken, hostname: window.location.hostname });
+    }
+  });
+
   /**
    * Main Content Script execution
    */
@@ -196,5 +236,5 @@
   }
 
   // Delay slightly to let form & iframe initialize
-  setTimeout(init, 1200);
+  setTimeout(init, 1000);
 })();
