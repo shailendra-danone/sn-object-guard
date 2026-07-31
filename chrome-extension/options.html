@@ -8,7 +8,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #11111b;
       color: #cdd6f4;
-      max-width: 600px;
+      max-width: 650px;
       margin: 40px auto;
       padding: 24px;
       border-radius: 12px;
@@ -19,8 +19,20 @@
       color: #89b4fa;
       margin-top: 0;
     }
-    .form-group {
+    .notice {
+      background: rgba(137, 180, 250, 0.1);
+      border: 1px solid rgba(137, 180, 250, 0.3);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 12px;
       margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
     }
     label {
       display: block;
@@ -28,7 +40,7 @@
       margin-bottom: 6px;
       font-size: 13px;
     }
-    input, select {
+    input {
       width: 100%;
       padding: 10px;
       border-radius: 6px;
@@ -36,6 +48,7 @@
       background: #181825;
       color: #cdd6f4;
       box-sizing: border-box;
+      font-size: 13px;
     }
     button {
       background: #89b4fa;
@@ -56,24 +69,54 @@
 <body>
   <h1>🛡️ SN Object Guard Configuration</h1>
   
-  <div class="form-group">
-    <label for="devHost">DEV Instance Hostname</label>
-    <input type="text" id="devHost" value="danonedev.service-now.com">
+  <div class="notice">
+    <strong>💡 How 401 Authentication Works:</strong><br>
+    Option 1: Simply open & log in to your higher instances (TEST/UAT/PROD) in Google Chrome once. The extension will automatically use your browser session cookies.<br>
+    Option 2: Or enter a Personal Access Token / Bearer Token for your higher instances below.
   </div>
 
-  <div class="form-group">
-    <label for="testHost">TEST Instance Hostname</label>
-    <input type="text" id="testHost" value="danonetest.service-now.com">
+  <div class="form-row">
+    <div>
+      <label for="devHost">DEV Instance Hostname</label>
+      <input type="text" id="devHost" value="danonedev.service-now.com">
+    </div>
+    <div>
+      <label for="devToken">DEV Access Token (Optional)</label>
+      <input type="password" id="devToken" placeholder="Bearer token / PAT">
+    </div>
   </div>
 
-  <div class="form-group">
-    <label for="uatHost">UAT / SANDBOX Instance Hostname</label>
-    <input type="text" id="uatHost" value="danonesandbox.service-now.com">
+  <div class="form-row">
+    <div>
+      <label for="testHost">TEST Instance Hostname</label>
+      <input type="text" id="testHost" value="danonetest.service-now.com">
+    </div>
+    <div>
+      <label for="testToken">TEST Access Token (Optional)</label>
+      <input type="password" id="testToken" placeholder="Bearer token / PAT">
+    </div>
   </div>
 
-  <div class="form-group">
-    <label for="prodHost">PROD Instance Hostname</label>
-    <input type="text" id="prodHost" value="danone.service-now.com">
+  <div class="form-row">
+    <div>
+      <label for="uatHost">UAT / SANDBOX Hostname</label>
+      <input type="text" id="uatHost" value="danonesandbox.service-now.com">
+    </div>
+    <div>
+      <label for="uatToken">UAT Access Token (Optional)</label>
+      <input type="password" id="uatToken" placeholder="Bearer token / PAT">
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div>
+      <label for="prodHost">PROD Instance Hostname</label>
+      <input type="text" id="prodHost" value="danone.service-now.com">
+    </div>
+    <div>
+      <label for="prodToken">PROD Access Token (Optional)</label>
+      <input type="password" id="prodToken" placeholder="Bearer token / PAT">
+    </div>
   </div>
 
   <button id="save-btn">Save Configuration</button>

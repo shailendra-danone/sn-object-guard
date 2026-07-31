@@ -47,21 +47,32 @@ function getHigherInstance(currentHost, config) {
 }
 
 // Fetch record from higher instance
-async function fetchHigherRecord(higherHost, table, sysId) {
+async function fetchHigherRecord(higherHost, table, sysId, token) {
   const fields = 'sys_id,sys_updated_on,sys_updated_by,sys_mod_count,name,script,short_description';
   const url = `https://${higherHost}/api/now/table/${table}/${sysId}?sysparm_fields=${fields}`;
+
+  const headers = {
+    'Accept': 'application/json',
+    'User-Agent': 'SN-Object-Guard-Chrome/1.0'
+  };
+
+  if (token) {
+    if (token.startsWith('Basic ') || token.startsWith('Bearer ')) {
+      headers['Authorization'] = token;
+    } else {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
 
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'SN-Object-Guard-Chrome/1.0'
-      }
+      headers,
+      credentials: 'include' // Include session cookies for higher instance if logged in
     });
 
     if (response.status === 401 || response.status === 403) {
-      throw new Error(`🔑 Authentication Failed (HTTP ${response.status}) on ${higherHost}. Please log in to ${higherHost} in Chrome or set access token in Options.`);
+      throw new Error(`AUTH_401:${higherHost}`);
     }
 
     if (!response.ok) {
@@ -81,42 +92,60 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'CHECK_RECORD') {
     (async () => {
       try {
-        const { config } = await chrome.storage.local.get(['config']);
+        const { config, tokens } = await chrome.storage.local.get(['config', 'tokens']);
         const activeConfig = config || DEFAULT_CONFIG;
+        const activeTokens = tokens || {};
 
         const currentHost = request.hostname;
         const higherInst = getHigherInstance(currentHost, activeConfig);
 
         if (!higherInst) {
-          sendResponse({ success: false, reason: `No higher instance mapped for host ${currentHost}` });
+          sendResponse({ success: false, reason: `No higher instance mapped for ${currentHost}` });
           return;
         }
 
-        const higherRecord = await fetchHigherRecord(higherInst.hostname, request.table, request.sysId);
+        const token = activeTokens[higherInst.name] || activeTokens[higherInst.hostname];
 
-        const localTime = request.localUpdatedOn ? new Date(request.localUpdatedOn).getTime() : 0;
-        const higherTime = new Date(higherRecord.sys_updated_on).getTime();
+        try {
+          const higherRecord = await fetchHigherRecord(higherInst.hostname, request.table, request.sysId, token);
 
-        const isOutdated = higherTime > localTime;
-        const modCountDiff = (parseInt(higherRecord.sys_mod_count || '0', 10)) - (parseInt(request.localModCount || '0', 10));
+          const localTime = request.localUpdatedOn ? new Date(request.localUpdatedOn).getTime() : 0;
+          const higherTime = new Date(higherRecord.sys_updated_on).getTime();
 
-        sendResponse({
-          success: true,
-          isOutdated: isOutdated || modCountDiff > 0,
-          currentHost,
-          higherInstance: higherInst,
-          higherRecord: {
-            sys_id: higherRecord.sys_id,
-            sys_updated_on: higherRecord.sys_updated_on,
-            sys_updated_by: higherRecord.sys_updated_by || 'unknown',
-            sys_mod_count: higherRecord.sys_mod_count,
-            name: higherRecord.name || higherRecord.short_description || request.sysId,
-            script: higherRecord.script || ''
-          },
-          reason: isOutdated 
-            ? `Higher instance (${higherInst.name.toUpperCase()}) was updated on ${higherRecord.sys_updated_on} by ${higherRecord.sys_updated_by}`
-            : 'Record is synchronized with higher instance.'
-        });
+          const isOutdated = higherTime > localTime;
+          const modCountDiff = (parseInt(higherRecord.sys_mod_count || '0', 10)) - (parseInt(request.localModCount || '0', 10));
+
+          sendResponse({
+            success: true,
+            isOutdated: isOutdated || modCountDiff > 0,
+            currentHost,
+            higherInstance: higherInst,
+            higherRecord: {
+              sys_id: higherRecord.sys_id,
+              sys_updated_on: higherRecord.sys_updated_on,
+              sys_updated_by: higherRecord.sys_updated_by || 'unknown',
+              sys_mod_count: higherRecord.sys_mod_count,
+              name: higherRecord.name || higherRecord.short_description || request.sysId,
+              script: higherRecord.script || ''
+            },
+            reason: isOutdated 
+              ? `Higher instance (${higherInst.name.toUpperCase()}) was updated on ${higherRecord.sys_updated_on} by ${higherRecord.sys_updated_by}`
+              : 'Record is synchronized with higher instance.'
+          });
+        } catch (err) {
+          if (err.message && err.message.startsWith('AUTH_401:')) {
+            const host = err.message.split(':')[1];
+            sendResponse({
+              success: false,
+              isAuthError: true,
+              higherHost: host,
+              higherInstance: higherInst,
+              error: `🔑 Authentication required for higher instance (${higherInst.name.toUpperCase()}: ${host}). Please log into ${host} in Chrome or set an Access Token in Extension Options.`
+            });
+          } else {
+            sendResponse({ success: false, error: err.message });
+          }
+        }
       } catch (err) {
         sendResponse({ success: false, error: err.message });
       }

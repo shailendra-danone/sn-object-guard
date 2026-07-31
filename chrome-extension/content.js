@@ -49,8 +49,18 @@
 
     floatingBadge = document.createElement('div');
     floatingBadge.id = 'sn-guard-floating-badge';
-    
-    if (result.isOutdated) {
+
+    if (result.isAuthError) {
+      floatingBadge.className = 'sn-guard-badge outdated';
+      floatingBadge.innerHTML = `
+        <div class="sn-guard-badge-icon">🔑</div>
+        <div class="sn-guard-badge-text">
+          <strong>SN GUARD: LOGIN REQUIRED</strong>
+          <span>Log in to ${result.higherInstance.name.toUpperCase()} (${result.higherHost})</span>
+        </div>
+        <button id="sn-guard-login-btn">🌐 Log In</button>
+      `;
+    } else if (result.isOutdated) {
       floatingBadge.className = 'sn-guard-badge outdated';
       floatingBadge.innerHTML = `
         <div class="sn-guard-badge-icon">⚠️</div>
@@ -76,6 +86,13 @@
     const diffBtn = document.getElementById('sn-guard-view-diff-btn');
     if (diffBtn) {
       diffBtn.onclick = () => renderDiffModal(result);
+    }
+
+    const loginBtn = document.getElementById('sn-guard-login-btn');
+    if (loginBtn) {
+      loginBtn.onclick = () => {
+        window.open(`https://${result.higherHost}`, '_blank');
+      };
     }
   }
 
@@ -141,7 +158,7 @@
         sysId: record.sysId
       },
       (response) => {
-        if (response && response.success) {
+        if (response) {
           renderBadge(response);
         }
       }

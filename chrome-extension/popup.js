@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = `
           <div class="status-card">
             <div class="meta-line">⚠️ Active tab is not an open ServiceNow record.</div>
-            <div class="meta-line" style="opacity:0.6; font-size:11px;">Open a Script Include, BR, or Widget form in ServiceNow to test.</div>
+            <div class="meta-line" style="opacity:0.6; font-size:11px; margin-top:4px;">Open a Script Include, Business Rule, or Widget form in ServiceNow to test.</div>
           </div>
         `;
         return;
@@ -29,10 +29,47 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.runtime.sendMessage(
         { action: 'CHECK_RECORD', hostname, table, sysId },
         (res) => {
-          if (!res || !res.success) {
+          if (!res) {
             container.innerHTML = `
               <div class="status-card">
-                <div class="meta-line">⚠️ ${res?.reason || res?.error || 'Unable to query higher instance.'}</div>
+                <div class="meta-line">⚠️ Unable to query background extension.</div>
+              </div>
+            `;
+            return;
+          }
+
+          if (res.isAuthError) {
+            container.innerHTML = `
+              <div class="status-card outdated">
+                <span class="badge outdated">🔑 Auth Required</span>
+                <div class="meta-line">Not logged in to target higher instance:</div>
+                <div class="meta-line"><strong>${res.higherInstance.name.toUpperCase()}</strong> (${res.higherHost})</div>
+                <button id="login-higher-btn" style="margin-top:10px; background:#f38ba8; color:#11111b;">🌐 Open & Log In to ${res.higherInstance.name.toUpperCase()}</button>
+                <div style="font-size:11px; opacity:0.7; margin-top:8px; text-align:center;">Or configure access token in <a href="#" id="open-options-link" style="color:#89b4fa;">Extension Options</a></div>
+              </div>
+            `;
+
+            const loginBtn = document.getElementById('login-higher-btn');
+            if (loginBtn) {
+              loginBtn.onclick = () => {
+                chrome.tabs.create({ url: `https://${res.higherHost}` });
+              };
+            }
+
+            const optionsLink = document.getElementById('open-options-link');
+            if (optionsLink) {
+              optionsLink.onclick = (e) => {
+                e.preventDefault();
+                chrome.runtime.openOptionsPage();
+              };
+            }
+            return;
+          }
+
+          if (!res.success) {
+            container.innerHTML = `
+              <div class="status-card">
+                <div class="meta-line">⚠️ ${res.reason || res.error || 'Unable to query higher instance.'}</div>
               </div>
             `;
             return;

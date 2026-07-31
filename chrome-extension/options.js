@@ -3,11 +3,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const testHostInput = document.getElementById('testHost');
   const uatHostInput = document.getElementById('uatHost');
   const prodHostInput = document.getElementById('prodHost');
+
+  const devTokenInput = document.getElementById('devToken');
+  const testTokenInput = document.getElementById('testToken');
+  const uatTokenInput = document.getElementById('uatToken');
+  const prodTokenInput = document.getElementById('prodToken');
+
   const saveBtn = document.getElementById('save-btn');
   const statusDiv = document.getElementById('status');
 
   // Load stored settings
-  chrome.storage.local.get(['config'], (result) => {
+  chrome.storage.local.get(['config', 'tokens'], (result) => {
     if (result.config && result.config.instances) {
       if (result.config.instances.dev) devHostInput.value = result.config.instances.dev.hostname;
       if (result.config.instances.test) testHostInput.value = result.config.instances.test.hostname;
@@ -15,6 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
         uatHostInput.value = (result.config.instances.sandbox || result.config.instances.uat).hostname;
       }
       if (result.config.instances.prod) prodHostInput.value = result.config.instances.prod.hostname;
+    }
+
+    if (result.tokens) {
+      if (result.tokens.dev) devTokenInput.value = result.tokens.dev;
+      if (result.tokens.test) testTokenInput.value = result.tokens.test;
+      if (result.tokens.uat || result.tokens.sandbox) uatTokenInput.value = result.tokens.sandbox || result.tokens.uat;
+      if (result.tokens.prod) prodTokenInput.value = result.tokens.prod;
     }
   });
 
@@ -31,7 +44,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     };
 
-    chrome.storage.local.set({ config }, () => {
+    const tokens = {
+      dev: devTokenInput.value.trim(),
+      test: testTokenInput.value.trim(),
+      uat: uatTokenInput.value.trim(),
+      sandbox: uatTokenInput.value.trim(),
+      prod: prodTokenInput.value.trim()
+    };
+
+    chrome.storage.local.set({ config, tokens }, () => {
       statusDiv.textContent = '✅ Settings saved successfully!';
       setTimeout(() => { statusDiv.textContent = ''; }, 3000);
     });
