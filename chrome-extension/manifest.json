@@ -11,17 +11,18 @@
     "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://*.service-now.com/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://*.service-now.com/*"],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["content.js"],
       "css": ["styles.css"],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "all_frames": true
     }
   ],

@@ -1,83 +1,171 @@
-// SN Object Guard Chrome Extension - Content Script (Universal ServiceNow Record Detector)
+// SN Object Guard Chrome Extension - Content Script (Main World Bridge + Deep DOM & URL Scanner)
 
 (function () {
   let floatingBadge = null;
+  let detectedRecord = null;
+  let detectedUserToken = '';
 
   /**
-   * Universal ServiceNow Record Detection Engine
+   * Inject Main World Script to access window.g_form, window.NOW, and window.g_ck directly
    */
-  function detectServiceNowRecord() {
-    // 1. Try DOM g_form
+  function injectMainWorldBridge() {
     try {
-      if (window.g_form && typeof window.g_form.getTableName === 'function') {
-        const table = window.g_form.getTableName();
-        const sysId = window.g_form.getUniqueValue();
-        if (table && sysId && sysId !== '-1' && /^[a-fA-F0-9]{32}$/.test(sysId)) {
-          return { table, sysId };
+      const script = document.createElement('script');
+      script.textContent = `
+        (function() {
+          function checkAndPost() {
+            try {
+              var table = null;
+              var sysId = null;
+              var userToken = window.g_ck || (window.top && window.top.g_ck) || '';
+
+              if (window.g_form && typeof window.g_form.getTableName === 'function') {
+                table = window.g_form.getTableName();
+                sysId = window.g_form.getUniqueValue();
+              } else if (window.NOW && window.NOW.sys_id) {
+                table = window.NOW.target || window.NOW.table;
+                sysId = window.NOW.sys_id;
+              }
+
+              if (sysId && sysId !== '-1' && /^[a-fA-F0-9]{32}$/.test(sysId)) {
+                window.postMessage({
+                  type: 'SN_GUARD_MAIN_WORLD_DATA',
+                  table: table,
+                  sysId: sysId,
+                  userToken: userToken
+                }, '*');
+              }
+            } catch(e) {}
+          }
+          checkAndPost();
+          setTimeout(checkAndPost, 1000);
+          setTimeout(checkAndPost, 3000);
+        })();
+      `;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch {}
+  }
+
+  // Listen for messages posted from Main World Script
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SN_GUARD_MAIN_WORLD_DATA') {
+      if (event.data.table && event.data.sysId) {
+        detectedRecord = { table: event.data.table, sysId: event.data.sysId };
+        if (event.data.userToken) detectedUserToken = event.data.userToken;
+        triggerCheck();
+      }
+    }
+  });
+
+  /**
+   * Comprehensive DOM Input & Element Inspector
+   */
+  function inspectDOMForRecord() {
+    try {
+      // Inputs for sys_id
+      const sysIdInputs = [
+        document.getElementById('sys_unique_value'),
+        document.querySelector('input[name="sys_id"]'),
+        document.querySelector('input[name="sysparm_sys_id"]'),
+        document.querySelector('input[id="sys_id"]')
+      ];
+
+      let sysId = null;
+      for (const input of sysIdInputs) {
+        if (input && input.value && /^[a-fA-F0-9]{32}$/.test(input.value)) {
+          sysId = input.value;
+          break;
         }
+      }
+
+      // Inputs for table
+      const tableInputs = [
+        document.getElementById('sys_target'),
+        document.querySelector('input[name="sys_target"]'),
+        document.querySelector('input[name="sysparm_tableName"]'),
+        document.querySelector('input[name="sysparm_table_name"]'),
+        document.querySelector('input[name="table"]')
+      ];
+
+      let table = null;
+      for (const input of tableInputs) {
+        if (input && input.value && input.value !== 'nav_to' && input.value !== 'navpage') {
+          table = input.value;
+          break;
+        }
+      }
+
+      // Fallback table from pathname (e.g. /sys_script_include.do)
+      if (!table) {
+        const pathMatch = window.location.pathname.match(/\/([a-zA-Z0-9_]+)\.do/);
+        if (pathMatch && pathMatch[1] !== 'nav_to' && pathMatch[1] !== 'navpage') {
+          table = pathMatch[1];
+        }
+      }
+
+      if (sysId && table) {
+        return { table, sysId };
       }
     } catch {}
 
-    // 2. Try DOM hidden input fields (#sys_unique_value, sys_target, input[name="sys_id"])
-    try {
-      const uniqueValInput = document.getElementById('sys_unique_value') || document.querySelector('input[name="sys_id"]');
-      const targetInput = document.getElementById('sys_target') || document.querySelector('input[name="sys_target"]');
-      if (uniqueValInput && uniqueValInput.value && /^[a-fA-F0-9]{32}$/.test(uniqueValInput.value)) {
-        const sysId = uniqueValInput.value;
-        const table = targetInput ? targetInput.value : (window.location.pathname.match(/\/([a-zA-Z0-9_]+)\.do/) || [])[1];
-        if (table) {
-          return { table, sysId };
-        }
-      }
-    } catch {}
+    return null;
+  }
 
-    // 3. Try Current Frame & Parent URL (decoding encoded URI / Next Experience params)
+  /**
+   * Deep URL Scanner (decoding query strings, iframe URLs, and Polaris targets)
+   */
+  function inspectURLsForRecord() {
     const urlsToTest = [
       window.location.href,
-      decodeURIComponent(window.location.href),
       window.location.search,
-      decodeURIComponent(window.location.search)
+      window.location.hash
     ];
 
     try {
       if (window.top && window.top.location) {
         urlsToTest.push(window.top.location.href);
-        urlsToTest.push(decodeURIComponent(window.top.location.href));
+        urlsToTest.push(window.top.location.search);
+        urlsToTest.push(window.top.location.hash);
       }
     } catch {}
 
     for (const rawUrl of urlsToTest) {
       if (!rawUrl) continue;
-      const url = decodeURIComponent(rawUrl);
+      
+      let url = rawUrl;
+      try { url = decodeURIComponent(rawUrl); } catch {}
+      try { url = decodeURIComponent(url); } catch {} // double decode for encoded Polaris params
 
-      // Pattern A: sys_script_include.do?sys_id=12345...
-      const matchA = url.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
-      if (matchA && matchA[1] !== 'nav_to' && matchA[1] !== 'navpage') {
-        return { table: matchA[1], sysId: matchA[2] };
+      // Pattern 1: sys_script_include.do?sys_id=32hex
+      const match1 = url.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/i);
+      if (match1 && match1[1] !== 'nav_to' && match1[1] !== 'navpage') {
+        return { table: match1[1], sysId: match1[2] };
       }
 
-      // Pattern B: Next Experience / Polaris / target parameter (sys_script_include.do?sys_id=...)
-      const matchB = url.match(/([a-zA-Z0-9_]+)\.do.*sys_id[=%3D]([a-fA-F0-9]{32})/);
-      if (matchB && matchB[1] !== 'nav_to' && matchB[1] !== 'navpage') {
-        return { table: matchB[1], sysId: matchB[2] };
+      // Pattern 2: target/sys_script_include.do?sys_id=32hex or target=sys_script_include.do?sys_id=32hex
+      const match2 = url.match(/([a-zA-Z0-9_]+)\.do.*sys_id[=%3D]([a-fA-F0-9]{32})/i);
+      if (match2 && match2[1] !== 'nav_to' && match2[1] !== 'navpage') {
+        return { table: match2[1], sysId: match2[2] };
       }
 
-      // Pattern C: sys_id=32hex&table=tableName
-      const sysIdMatch = url.match(/sys_id[=%3D]([a-fA-F0-9]{32})/);
-      const tableMatch = url.match(/(?:table|sys_target)[=%3D]([a-zA-Z0-9_]+)/);
-      if (sysIdMatch && tableMatch) {
+      // Pattern 3: Any 32-hex string alongside a known table or sys_target
+      const sysIdMatch = url.match(/\b([a-fA-F0-9]{32})\b/);
+      const tableMatch = url.match(/(?:table|sys_target|target)[=%3D\/]([a-zA-Z0-9_]+)/i);
+      if (sysIdMatch && tableMatch && tableMatch[1] !== 'nav_to' && tableMatch[1] !== 'navpage') {
         return { table: tableMatch[1], sysId: sysIdMatch[1] };
       }
     }
 
-    // 4. If top frame, check gsft_main iframe
+    // Inspect iframe gsft_main if on top window
     try {
       const iframe = document.getElementById('gsft_main');
       if (iframe && iframe.contentWindow) {
-        const iframeHref = decodeURIComponent(iframe.contentWindow.location.href);
-        const iframeMatch = iframeHref.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
-        if (iframeMatch) {
-          return { table: iframeMatch[1], sysId: iframeMatch[2] };
+        let iframeUrl = iframe.contentWindow.location.href;
+        try { iframeUrl = decodeURIComponent(iframeUrl); } catch {}
+        const matchIframe = iframeUrl.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/i);
+        if (matchIframe) {
+          return { table: matchIframe[1], sysId: matchIframe[2] };
         }
       }
     } catch {}
@@ -86,17 +174,18 @@
   }
 
   /**
-   * Extract ServiceNow CSRF user token (g_ck) for SSO REST requests
+   * Universal Record Detection Master
    */
-  function getUserToken() {
-    try {
-      if (window.g_ck) return window.g_ck;
-      if (window.top && window.top.g_ck) return window.top.g_ck;
+  function detectRecord() {
+    if (detectedRecord) return detectedRecord;
 
-      const ckInput = document.querySelector('input[name="sysparm_ck"]');
-      if (ckInput && ckInput.value) return ckInput.value;
-    } catch {}
-    return '';
+    const domRecord = inspectDOMForRecord();
+    if (domRecord) return domRecord;
+
+    const urlRecord = inspectURLsForRecord();
+    if (urlRecord) return urlRecord;
+
+    return null;
   }
 
   /**
@@ -142,16 +231,10 @@
     document.body.appendChild(floatingBadge);
 
     const diffBtn = document.getElementById('sn-guard-view-diff-btn');
-    if (diffBtn) {
-      diffBtn.onclick = () => renderDiffModal(result);
-    }
+    if (diffBtn) diffBtn.onclick = () => renderDiffModal(result);
 
     const loginBtn = document.getElementById('sn-guard-login-btn');
-    if (loginBtn) {
-      loginBtn.onclick = () => {
-        window.open(`https://${result.higherHost}`, '_blank');
-      };
-    }
+    if (loginBtn) loginBtn.onclick = () => window.open(`https://${result.higherHost}`, '_blank');
   }
 
   /**
@@ -189,35 +272,25 @@
     `;
 
     document.body.appendChild(overlay);
-
     overlay.querySelector('.sn-guard-close-btn').onclick = () => overlay.remove();
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
   }
 
   function escapeHtml(text) {
-    return (text || '')
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    return (text || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   // Listen for direct queries from Extension Popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'GET_CURRENT_RECORD') {
-      const record = detectServiceNowRecord();
-      const userToken = getUserToken();
-      sendResponse({ record, userToken, hostname: window.location.hostname });
+      const record = detectRecord();
+      sendResponse({ record, userToken: detectedUserToken, hostname: window.location.hostname });
     }
   });
 
-  /**
-   * Main Content Script execution
-   */
-  function init() {
-    const record = detectServiceNowRecord();
+  function triggerCheck() {
+    const record = detectRecord();
     if (!record) return;
-
-    const userToken = getUserToken();
 
     chrome.runtime.sendMessage(
       {
@@ -225,7 +298,7 @@
         hostname: window.location.hostname,
         table: record.table,
         sysId: record.sysId,
-        userToken
+        userToken: detectedUserToken
       },
       (response) => {
         if (response) {
@@ -235,6 +308,8 @@
     );
   }
 
-  // Delay slightly to let form & iframe initialize
-  setTimeout(init, 1000);
+  // Execution steps
+  injectMainWorldBridge();
+  setTimeout(triggerCheck, 1000);
+  setTimeout(triggerCheck, 3000);
 })();

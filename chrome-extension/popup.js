@@ -4,24 +4,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function parseUrlForRecord(rawUrl) {
     if (!rawUrl) return null;
-    const url = decodeURIComponent(rawUrl);
+    let url = rawUrl;
+    try { url = decodeURIComponent(rawUrl); } catch {}
+    try { url = decodeURIComponent(url); } catch {}
 
-    // Pattern A: sys_script_include.do?sys_id=32hex
-    const matchA = url.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/);
-    if (matchA && matchA[1] !== 'nav_to' && matchA[1] !== 'navpage') {
-      return { table: matchA[1], sysId: matchA[2] };
+    // Pattern 1: sys_script_include.do?sys_id=32hex
+    const match1 = url.match(/\/([a-zA-Z0-9_]+)\.do\?.*sys_id=([a-fA-F0-9]{32})/i);
+    if (match1 && match1[1] !== 'nav_to' && match1[1] !== 'navpage') {
+      return { table: match1[1], sysId: match1[2] };
     }
 
-    // Pattern B: Next Experience / Polaris target parameter
-    const matchB = url.match(/([a-zA-Z0-9_]+)\.do.*sys_id[=%3D]([a-fA-F0-9]{32})/);
-    if (matchB && matchB[1] !== 'nav_to' && matchB[1] !== 'navpage') {
-      return { table: matchB[1], sysId: matchB[2] };
+    // Pattern 2: Next Experience / Polaris target parameter
+    const match2 = url.match(/([a-zA-Z0-9_]+)\.do.*sys_id[=%3D]([a-fA-F0-9]{32})/i);
+    if (match2 && match2[1] !== 'nav_to' && match2[1] !== 'navpage') {
+      return { table: match2[1], sysId: match2[2] };
     }
 
-    // Pattern C: sys_id=32hex & table=tableName
-    const sysIdMatch = url.match(/sys_id[=%3D]([a-fA-F0-9]{32})/);
-    const tableMatch = url.match(/(?:table|sys_target)[=%3D]([a-zA-Z0-9_]+)/);
-    if (sysIdMatch && tableMatch) {
+    // Pattern 3: Any 32-hex string alongside table
+    const sysIdMatch = url.match(/\b([a-fA-F0-9]{32})\b/);
+    const tableMatch = url.match(/(?:table|sys_target|target)[=%3D\/]([a-zA-Z0-9_]+)/i);
+    if (sysIdMatch && tableMatch && tableMatch[1] !== 'nav_to' && tableMatch[1] !== 'navpage') {
       return { table: tableMatch[1], sysId: sysIdMatch[1] };
     }
 
@@ -40,12 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const activeTab = tabs[0];
       const hostname = new URL(activeTab.url).hostname;
 
-      // Method 1: Ask content script inside active tab (which has DOM & iFrame access!)
+      // Method 1: Ask content script in active tab (DOM & Main World access)
       chrome.tabs.sendMessage(activeTab.id, { action: 'GET_CURRENT_RECORD' }, (response) => {
         let record = response?.record;
         let userToken = response?.userToken;
 
-        // Method 2: Fallback to parsing top tab URL if content script didn't return a record
+        // Method 2: Fallback to parsing active tab URL
         if (!record) {
           record = parseUrlForRecord(activeTab.url);
         }
